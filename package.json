@@ -1,6 +1,6 @@
 {
   "name": "gemini-cli-connect",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Connect Gemini CLI to messaging platforms like Telegram",
   "repository": {
     "type": "git",
