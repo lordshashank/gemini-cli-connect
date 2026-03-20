@@ -1,0 +1,43 @@
+{
+  "name": "gemini-cli-connect",
+  "version": "0.1.0",
+  "description": "Connect Gemini CLI to messaging platforms like Telegram",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lordshashank/gemini-cli-connect.git"
+  },
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "gemini-cli-connect": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:ci": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@google/gemini-cli-core": "^0.34.0",
+    "@grammyjs/runner": "^2.0.3",
+    "grammy": "^1.35.0",
+    "markdown-it": "^14.1.1",
+    "strip-ansi": "^7.1.0",
+    "strip-json-comments": "^3.1.1"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "typescript": "^5.3.3",
+    "vitest": "^3.1.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
