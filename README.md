@@ -7,14 +7,14 @@ Built on top of [`@google/gemini-cli-core`](https://www.npmjs.com/package/@googl
 ## Quick Start
 
 ```bash
-npx gemini-cli-connect
+npx gemini-cli-connect start
 ```
 
 Or install globally:
 
 ```bash
 npm install -g gemini-cli-connect
-gemini-cli-connect
+gemini-cli-connect start
 ```
 
 On first run, a setup wizard will guide you through:
@@ -24,7 +24,7 @@ On first run, a setup wizard will guide you through:
 3. Choosing a default model (optional)
 4. Authenticating with Google (OAuth or API key)
 
-The daemon starts in the background automatically.
+The daemon starts in the background automatically after setup.
 
 ## Requirements
 
@@ -37,14 +37,14 @@ No need to install Gemini CLI separately — `@google/gemini-cli-core` is includ
 ## CLI Usage
 
 ```
-gemini-cli-connect [command] [options]
+gemini-cli-connect <command> [options]
 ```
 
 ### Commands
 
 | Command | Description |
 |---------|-------------|
-| `start` | Start the daemon (default if no command given) |
+| `start` | Start the daemon |
 | `stop` | Stop the running daemon |
 | `status` | Check if the daemon is running |
 | `logs` | Show recent daemon logs |
@@ -54,7 +54,7 @@ gemini-cli-connect [command] [options]
 
 | Option | Description |
 |--------|-------------|
-| `--live`, `-l` | Run in foreground instead of backgrounding |
+| `--live`, `-l` | Run in foreground instead of backgrounding (with `start`) |
 | `--help`, `-h` | Show help message |
 | `--version`, `-v` | Show version number |
 

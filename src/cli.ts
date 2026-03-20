@@ -23,23 +23,25 @@ const command = args[0];
 
 // --- Flags (checked before subcommands) ---
 
-if (args.includes('--help') || args.includes('-h')) {
-  console.log(`gemini-cli-connect — Connect Gemini CLI to Telegram
+const helpText = `gemini-cli-connect — Connect Gemini CLI to Telegram
 
 Usage:
-  gemini-cli-connect [command] [options]
+  gemini-cli-connect <command> [options]
 
 Commands:
-  start                Start the daemon (default if no command given)
+  start                Start the daemon
   stop                 Stop the running daemon
   status               Check if the daemon is running
   logs                 Show recent daemon logs
   setup [step]         Run setup wizard (steps: token, users, model, auth)
 
 Options:
-  --live, -l           Run in foreground instead of backgrounding
+  --live, -l           Run in foreground instead of backgrounding (with start)
   --help, -h           Show this help message
-  --version, -v        Show version number`);
+  --version, -v        Show version number`;
+
+if (args.includes('--help') || args.includes('-h') || args.length === 0) {
+  console.log(helpText);
   process.exit(0);
 }
 
@@ -112,13 +114,13 @@ if (command === 'logs') {
 
 // --- Unknown subcommand ---
 
-if (command && command !== 'start' && !command.startsWith('-')) {
+if (command !== 'start') {
   console.error(`Unknown command: ${command}`);
   console.error(`Run 'gemini-cli-connect --help' for usage.`);
   process.exit(1);
 }
 
-// --- Start daemon (explicit 'start' or default) ---
+// --- Start daemon ---
 
 if (!configExists()) {
   console.log('No configuration found. Running setup...\n');
@@ -189,7 +191,7 @@ const scriptPath = path.resolve(
   new URL(import.meta.url).pathname,
 );
 
-const child = spawn(process.execPath, [scriptPath, '--live'], {
+const child = spawn(process.execPath, [scriptPath, 'start', '--live'], {
   detached: true,
   stdio: ['ignore', logFd, logFd],
   env: {
@@ -205,4 +207,14 @@ fs.closeSync(logFd);
 console.log(`Daemon started in background (pid ${child.pid}).`);
 console.log(`Logs: ${LOG_PATH}`);
 console.log(`Stop:  gemini-cli-connect stop`);
+
+// Show the bot's Telegram link
+try {
+  const res = await fetch(`https://api.telegram.org/bot${config.telegramBotToken}/getMe`);
+  const data = (await res.json()) as { ok: boolean; result?: { username?: string } };
+  if (data.ok && data.result?.username) {
+    console.log(`\nChat: https://t.me/${data.result.username}`);
+  }
+} catch { /* ignore — non-critical */ }
+
 process.exit(0);

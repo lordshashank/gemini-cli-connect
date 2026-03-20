@@ -98,36 +98,88 @@ async function setupUsers(rl: readline.Interface): Promise<number[]> {
   }
 }
 
-async function setupModel(rl: readline.Interface): Promise<string | undefined> {
+function radioSelect(
+  options: { label: string; value: string | undefined }[],
+): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    let selected = 0;
+
+    const render = () => {
+      // Move cursor up to overwrite previous render (skip on first render)
+      if (rendered) {
+        process.stdout.write(`\x1b[${options.length}A`);
+      }
+      for (let i = 0; i < options.length; i++) {
+        const marker = i === selected ? '◉' : '◯';
+        const dim = i === selected ? '' : '\x1b[2m';
+        const reset = '\x1b[0m';
+        process.stdout.write(`\x1b[2K  ${dim}${marker} ${options[i]!.label}${reset}\n`);
+      }
+    };
+
+    let rendered = false;
+    render();
+    rendered = true;
+
+    const stdin = process.stdin;
+    stdin.setRawMode(true);
+    stdin.resume();
+
+    const onData = (data: Buffer) => {
+      const key = data.toString();
+
+      if (key === '\x1b[A' || key === 'k') {
+        // Up arrow or k
+        selected = (selected - 1 + options.length) % options.length;
+        render();
+      } else if (key === '\x1b[B' || key === 'j') {
+        // Down arrow or j
+        selected = (selected + 1) % options.length;
+        render();
+      } else if (key === '\r' || key === '\n') {
+        // Enter
+        stdin.removeListener('data', onData);
+        stdin.setRawMode(false);
+        stdin.pause();
+        const choice = options[selected]!;
+        console.log(`\nSelected: ${choice.label}\n`);
+        resolve(choice.value);
+      } else if (key === '\x03') {
+        // Ctrl+C
+        stdin.removeListener('data', onData);
+        stdin.setRawMode(false);
+        process.exit(0);
+      }
+    };
+
+    stdin.on('data', onData);
+  });
+}
+
+async function setupModel(rl: readline.Interface): Promise<{ model: string | undefined; rl: readline.Interface }> {
   console.log('Default Model');
-  console.log('  Override the model used for Telegram sessions.\n');
+  console.log('  Use ↑↓ to navigate, Enter to select.\n');
 
-  console.log('  0. Use Gemini CLI default (skip)');
-  for (let i = 0; i < AVAILABLE_MODELS.length; i++) {
-    const m = AVAILABLE_MODELS[i]!;
-    const display = getDisplayString(m);
-    const label = display !== m ? `${m} — ${display}` : m;
-    console.log(`  ${i + 1}. ${label}`);
-  }
-  console.log();
+  // Close readline entirely to flush its buffer before raw mode
+  rl.close();
 
-  while (true) {
-    const input = await ask(rl, 'Choose a model [0]: ');
-    if (!input || input === '0') {
-      return undefined;
-    }
-    const num = parseInt(input, 10);
-    if (num >= 1 && num <= AVAILABLE_MODELS.length) {
-      const model = AVAILABLE_MODELS[num - 1];
-      console.log(`Selected: ${model}\n`);
-      return model;
-    }
-    if (input && isNaN(num)) {
-      console.log(`Selected: ${input}\n`);
-      return input;
-    }
-    console.log('Invalid choice. Try again.\n');
-  }
+  const options = [
+    { label: 'Use Gemini CLI default', value: undefined as string | undefined },
+    ...AVAILABLE_MODELS.map((m) => {
+      const display = getDisplayString(m);
+      return { label: display !== m ? `${m} — ${display}` : m, value: m as string | undefined };
+    }),
+  ];
+
+  const model = await radioSelect(options);
+
+  // Create a fresh readline for subsequent steps
+  const newRl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return { model, rl: newRl };
 }
 
 /**
@@ -248,9 +300,14 @@ export async function runSetup(only?: SetupStep): Promise<void> {
     ? await setupUsers(currentRl)
     : existing!.allowedUsers;
 
-  const model = only === 'model' || !only
-    ? await setupModel(currentRl)
-    : existing?.model;
+  let model: string | undefined;
+  if (only === 'model' || !only) {
+    const result = await setupModel(currentRl);
+    model = result.model;
+    currentRl = result.rl;
+  } else {
+    model = existing?.model;
+  }
 
   if (!only) {
     currentRl = await setupAuth(currentRl);
