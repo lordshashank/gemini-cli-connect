@@ -26,8 +26,12 @@ export interface DaemonOptions extends TelegramBotOptions {
  * Register a ConsentRequest listener so the core library's OAuth flow
  * can prompt the user for consent on stdin (instead of throwing
  * FatalAuthenticationError when no listener is registered).
+ * Safe to call multiple times — only registers once.
  */
-function registerConsentHandler(): void {
+let consentHandlerRegistered = false;
+export function registerConsentHandler(): void {
+  if (consentHandlerRegistered) return;
+  consentHandlerRegistered = true;
   coreEvents.on(CoreEvent.ConsentRequest, (payload) => {
     const rl = readline.createInterface({
       input: process.stdin,
@@ -40,6 +44,46 @@ function registerConsentHandler(): void {
   });
 }
 
+/**
+ * Suppress core library console noise.
+ * Gemini CLI's TUI uses a ConsolePatcher to route these to a debug drawer.
+ * We don't have a TUI, so we mute them entirely.
+ * Returns a restore function to re-enable console output.
+ */
+function muteConsoleLogs(): () => void {
+  const originalLog = console.log;
+  const originalDebug = console.debug;
+  const originalWarn = console.warn;
+
+  console.debug = () => {};
+  console.log = () => {};
+  console.warn = () => {};
+
+  return () => {
+    console.log = originalLog;
+    console.debug = originalDebug;
+    console.warn = originalWarn;
+  };
+}
+
+/**
+ * Run the Gemini auth flow (OAuth or API key) by creating a throwaway config.
+ * Call this from an interactive terminal — it may open a browser for OAuth.
+ */
+export async function runAuthProbe(cwd?: string, model?: string): Promise<void> {
+  registerConsentHandler();
+  const restoreConsole = muteConsoleLogs();
+  try {
+    const probeConfig = await loadDaemonConfig('auth-probe', {
+      cwd: cwd || process.cwd(),
+      model,
+    });
+    await probeConfig.dispose();
+  } finally {
+    restoreConsole();
+  }
+}
+
 export async function startTelegramDaemon(
   options: DaemonOptions,
 ): Promise<void> {
@@ -49,20 +93,7 @@ export async function startTelegramDaemon(
     );
   }
 
-  // Allow the core library's OAuth flow to prompt for consent on stdin.
-  registerConsentHandler();
-
-  // Validate Gemini auth before starting the bot.
-  // Creates a throwaway config to trigger the auth flow — if OAuth tokens
-  // are missing or the API key is invalid, this fails fast instead of
-  // silently accepting messages we can't handle.
-  logger.info('Validating Gemini authentication...');
-  const probeConfig = await loadDaemonConfig('auth-probe', {
-    cwd: options.cwd || process.cwd(),
-    model: options.model,
-  });
-  await probeConfig.dispose();
-  logger.info('Gemini authentication validated.');
+  muteConsoleLogs(); // permanent — daemon output goes to log file
 
   const bot = new TelegramBot(options.token, options);
 

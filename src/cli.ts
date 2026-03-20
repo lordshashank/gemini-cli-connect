@@ -7,6 +7,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { runSetup, type SetupStep } from './setup.js';
 import {
   loadUserConfig,
@@ -15,17 +16,48 @@ import {
   PID_PATH,
   LOG_PATH,
 } from './config/userConfig.js';
-import { startTelegramDaemon } from './index.js';
+import { startTelegramDaemon, runAuthProbe } from './index.js';
 
 const args = process.argv.slice(2);
 const command = args[0];
+
+// --- Flags (checked before subcommands) ---
+
+if (args.includes('--help') || args.includes('-h')) {
+  console.log(`gemini-cli-connect — Connect Gemini CLI to Telegram
+
+Usage:
+  gemini-cli-connect [command] [options]
+
+Commands:
+  start                Start the daemon (default if no command given)
+  stop                 Stop the running daemon
+  status               Check if the daemon is running
+  logs                 Show recent daemon logs
+  setup [step]         Run setup wizard (steps: token, users, model, auth)
+
+Options:
+  --live, -l           Run in foreground instead of backgrounding
+  --help, -h           Show this help message
+  --version, -v        Show version number`);
+  process.exit(0);
+}
+
+if (args.includes('--version') || args.includes('-v')) {
+  const require = createRequire(import.meta.url);
+  const pkg = require('../package.json') as { version: string };
+  console.log(pkg.version);
+  process.exit(0);
+}
+
+// --- Subcommands ---
 
 if (command === 'setup') {
   const VALID_STEPS: SetupStep[] = ['token', 'users', 'model', 'auth'];
   const step = args[1] as SetupStep | undefined;
   if (step && !VALID_STEPS.includes(step)) {
-    console.log(`Unknown setup step: ${step}`);
-    console.log(`Valid steps: ${VALID_STEPS.join(', ')}`);
+    console.error(`Unknown setup step: ${step}`);
+    console.error(`Valid steps: ${VALID_STEPS.join(', ')}`);
     process.exit(1);
   }
   await runSetup(step);
@@ -78,25 +110,15 @@ if (command === 'logs') {
   process.exit(0);
 }
 
-if (command === 'help' || command === '--help' || command === '-h') {
-  console.log(`gemini-cli-connect — Connect Gemini CLI to Telegram
+// --- Unknown subcommand ---
 
-Usage:
-  gemini-cli-connect                  Start daemon in background (default)
-  gemini-cli-connect --foreground     Start daemon in foreground
-  gemini-cli-connect stop             Stop the background daemon
-  gemini-cli-connect status           Check if daemon is running
-  gemini-cli-connect logs             Show recent daemon logs
-  gemini-cli-connect setup            Run the full setup wizard
-  gemini-cli-connect setup token      Change bot token only
-  gemini-cli-connect setup users      Change allowed users only
-  gemini-cli-connect setup model      Change default model only
-  gemini-cli-connect setup auth       Set up Gemini authentication
-  gemini-cli-connect help             Show this help message`);
-  process.exit(0);
+if (command && command !== 'start' && !command.startsWith('-')) {
+  console.error(`Unknown command: ${command}`);
+  console.error(`Run 'gemini-cli-connect --help' for usage.`);
+  process.exit(1);
 }
 
-// --- Ensure config exists ---
+// --- Start daemon (explicit 'start' or default) ---
 
 if (!configExists()) {
   console.log('No configuration found. Running setup...\n');
@@ -110,22 +132,30 @@ if (!config) {
   process.exit(1);
 }
 
-// --- Foreground mode: run directly ---
+// Validate auth before backgrounding.
+// Runs silently if auth is already configured.
+try {
+  await runAuthProbe();
+} catch (e) {
+  console.error(`Authentication failed: ${e instanceof Error ? e.message : String(e)}`);
+  console.error('Run: gemini-cli-connect setup auth');
+  process.exit(1);
+}
 
-const isForeground =
-  args.includes('--foreground') ||
-  args.includes('-f') ||
+// --- Live mode: run directly ---
+
+const isLive =
+  args.includes('--live') ||
+  args.includes('-l') ||
   process.env['_GEMINI_CLI_CONNECT_DAEMON'] === '1';
 
-if (isForeground) {
-  // Write PID file for status/stop commands
+if (isLive) {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
   fs.writeFileSync(PID_PATH, process.pid.toString());
 
   const cleanup = () => {
     try { fs.unlinkSync(PID_PATH); } catch { /* ignore */ }
   };
-  process.once('exit', cleanup);
   process.once('SIGTERM', () => { cleanup(); process.exit(0); });
   process.once('SIGINT', () => { cleanup(); process.exit(0); });
 
@@ -159,7 +189,7 @@ const scriptPath = path.resolve(
   new URL(import.meta.url).pathname,
 );
 
-const child = spawn(process.execPath, [scriptPath, '--foreground'], {
+const child = spawn(process.execPath, [scriptPath, '--live'], {
   detached: true,
   stdio: ['ignore', logFd, logFd],
   env: {
@@ -175,3 +205,4 @@ fs.closeSync(logFd);
 console.log(`Daemon started in background (pid ${child.pid}).`);
 console.log(`Logs: ${LOG_PATH}`);
 console.log(`Stop:  gemini-cli-connect stop`);
+process.exit(0);

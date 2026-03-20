@@ -5,9 +5,7 @@
  */
 
 import * as readline from 'node:readline';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
+import { runAuthProbe } from './index.js';
 import {
   saveApiKey,
   DEFAULT_GEMINI_MODEL,
@@ -132,21 +130,39 @@ async function setupModel(rl: readline.Interface): Promise<string | undefined> {
   }
 }
 
-async function setupAuth(rl: readline.Interface): Promise<void> {
-  const oauthCredsPath = path.join(os.homedir(), '.gemini', 'oauth_creds.json');
-  const hasOauth = fs.existsSync(oauthCredsPath);
-  const hasApiKey = !!process.env['GEMINI_API_KEY'];
+/**
+ * Run the auth step. Accepts the readline interface so it can be closed
+ * before triggering OAuth (which needs its own stdin access).
+ * Returns a new readline interface if one was closed and reopened.
+ */
+async function setupAuth(rl: readline.Interface): Promise<readline.Interface> {
+  console.log('Gemini Authentication');
+  console.log('  Checking existing credentials...');
 
-  if (hasOauth || hasApiKey) {
-    console.log(`Gemini Authentication`);
-    console.log(`  Already configured (${hasOauth ? 'OAuth' : 'API key'}). Skipping.\n`);
-    return;
+  // Close readline before probing — the probe may trigger a consent
+  // prompt via its own readline, which conflicts with ours.
+  rl.close();
+
+  // Try existing auth silently — if it works, skip.
+  try {
+    await runAuthProbe();
+    console.log('  Authenticated. Skipping.\n');
+    return readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+  } catch {
+    // Auth not configured — ask user to set it up.
   }
 
-  console.log('Gemini Authentication');
-  console.log('  No existing Gemini auth found. Choose how to authenticate:');
+  rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  console.log('  Choose how to authenticate:');
   console.log('  (1) OAuth — opens your browser to sign in with Google');
-  console.log('  (2) API Key — set GEMINI_API_KEY in your environment\n');
+  console.log('  (2) API Key — paste a key or set GEMINI_API_KEY env var\n');
 
   const authChoice = await ask(rl, 'Auth method [1]: ');
 
@@ -161,9 +177,26 @@ async function setupAuth(rl: readline.Interface): Promise<void> {
     } else {
       console.log('Skipped. Make sure GEMINI_API_KEY is set in your environment.\n');
     }
-  } else {
-    console.log('OAuth will be triggered when the daemon starts.\n');
+    return rl;
   }
+
+  // OAuth: close readline so the auth probe can use stdin exclusively.
+  rl.close();
+
+  console.log('  Opening browser for Google sign-in...\n');
+  try {
+    await runAuthProbe();
+    console.log('OAuth authentication complete.\n');
+  } catch (e) {
+    console.log(`OAuth failed: ${e instanceof Error ? e.message : String(e)}`);
+    console.log('You can retry with: gemini-cli-connect setup auth\n');
+  }
+
+  // Reopen readline for any remaining steps.
+  return readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
 }
 
 /**
@@ -200,25 +233,27 @@ export async function runSetup(only?: SetupStep): Promise<void> {
   }
 
   if (only === 'auth') {
-    await setupAuth(rl);
-    rl.close();
+    const finalRl = await setupAuth(rl);
+    finalRl.close();
     return;
   }
 
+  let currentRl = rl;
+
   const token = only === 'token' || !only
-    ? await setupToken(rl)
+    ? await setupToken(currentRl)
     : existing!.telegramBotToken;
 
   const allowedUsers = only === 'users' || !only
-    ? await setupUsers(rl)
+    ? await setupUsers(currentRl)
     : existing!.allowedUsers;
 
   const model = only === 'model' || !only
-    ? await setupModel(rl)
+    ? await setupModel(currentRl)
     : existing?.model;
 
   if (!only) {
-    await setupAuth(rl);
+    currentRl = await setupAuth(currentRl);
   }
 
   const config: UserConfig = {
@@ -228,7 +263,7 @@ export async function runSetup(only?: SetupStep): Promise<void> {
   };
 
   saveUserConfig(config);
-  rl.close();
+  currentRl.close();
 
   console.log(`Config saved to ${CONFIG_PATH}`);
 }

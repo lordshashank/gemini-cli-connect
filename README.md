@@ -10,7 +10,14 @@ Built on top of [`@google/gemini-cli-core`](https://www.npmjs.com/package/@googl
 npx gemini-cli-connect
 ```
 
-That's it. On first run, a setup wizard will guide you through:
+Or install globally:
+
+```bash
+npm install -g gemini-cli-connect
+gemini-cli-connect
+```
+
+On first run, a setup wizard will guide you through:
 
 1. Creating a Telegram bot (via [@BotFather](https://t.me/BotFather))
 2. Setting your allowed Telegram user IDs
@@ -27,21 +34,29 @@ The daemon starts in the background automatically.
 
 No need to install Gemini CLI separately — `@google/gemini-cli-core` is included as a dependency.
 
-## CLI Commands
+## CLI Usage
 
 ```
-gemini-cli-connect                  Start daemon in background (default)
-gemini-cli-connect --foreground     Start daemon in foreground
-gemini-cli-connect stop             Stop the background daemon
-gemini-cli-connect status           Check if daemon is running
-gemini-cli-connect logs             Show recent daemon logs
-gemini-cli-connect setup            Run the full setup wizard
-gemini-cli-connect setup token      Change bot token only
-gemini-cli-connect setup users      Change allowed users only
-gemini-cli-connect setup model      Change default model only
-gemini-cli-connect setup auth       Set up Gemini authentication
-gemini-cli-connect help             Show this help message
+gemini-cli-connect [command] [options]
 ```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `start` | Start the daemon (default if no command given) |
+| `stop` | Stop the running daemon |
+| `status` | Check if the daemon is running |
+| `logs` | Show recent daemon logs |
+| `setup [step]` | Run setup wizard (steps: `token`, `users`, `model`, `auth`) |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--live`, `-l` | Run in foreground instead of backgrounding |
+| `--help`, `-h` | Show help message |
+| `--version`, `-v` | Show version number |
 
 ## Telegram Commands
 
@@ -52,7 +67,7 @@ Once the bot is running, interact with it in Telegram:
 | `/new` | Start a fresh session |
 | `/cancel` | Cancel the current operation |
 | `/resume` | List or resume a previous session |
-| `/model <name>` | Switch model |
+| `/model <number or name>` | Switch model |
 | `/addfolder <path>` | Add a folder for read+write access |
 | `/compact` | Compress chat history |
 | `/stats` | Show session statistics |
@@ -92,9 +107,9 @@ Run `gemini-cli-connect setup` to reconfigure.
 
 ## Authentication
 
-Authentication is handled the same way as Gemini CLI. The setup wizard will detect if you're already authenticated and skip this step. If not, you'll be asked to choose:
+Authentication is handled the same way as Gemini CLI. The setup wizard will check if you're already authenticated and skip this step. If not, you'll be asked to choose:
 
-- **OAuth** (recommended) — opens your browser to sign in with Google. Tokens are stored at `~/.gemini/oauth_creds.json`.
+- **OAuth** (recommended) — opens your browser to sign in with Google. Tokens are stored securely by the core library (keychain or encrypted file).
 - **API Key** — paste your key during setup and it gets saved securely in your system keychain (same storage Gemini CLI uses). Alternatively, set the `GEMINI_API_KEY` environment variable.
 
 If you've already authenticated with Gemini CLI, no extra setup is needed — gemini-cli-connect uses the same credentials.
@@ -107,6 +122,20 @@ Since this project uses `@google/gemini-cli-core`, your existing Gemini CLI conf
 - **MCP servers** — configured in Gemini CLI settings
 - **Extensions** — loaded from Gemini CLI config
 - **Context files** — `GEMINI.md` and `AGENTS.md` are picked up automatically
+
+## My Weird Patches on Top of Gemini CLI
+
+Building this wasn't as simple as "just import the core library and go." Here's some of the jank we had to work around:
+
+**Running gemini-cli-core as a daemon** — The core library is designed to power an interactive terminal session, not a background daemon. We essentially run it in a loop — each Telegram message creates a Gemini session, sends the message, streams the response, handles tool calls, and replies. From Google's perspective this looks identical to someone using the regular Gemini CLI, just over and over. Trying to avoid TOS violations 😢, no custom API calls — it's the same `@google/gemini-cli-core` package doing the same thing it always does.
+
+**Suppressing a ton of noisy logs** — The Gemini CLI has a fancy TUI (built with React/Ink) that captures all `console.log`/`console.debug` output and routes it to a debug drawer. We don't have a TUI. So all those internal debug messages (`[DEBUG] MemoryDiscovery`, `Hook registry initialized`, `Experiments loaded { ... }`, etc.) would just dump straight to the user's terminal. We had to mute `console.log`/`console.debug`/`console.warn` globally and use our own custom logger that writes to stderr instead. Works fine, but it's a bit of a hack — if the core library ever logs something actually important via `console.error`, we'd miss it. Could probably be improved with a smarter filter later.
+
+**OAuth consent handler** — The core library's OAuth flow expects either a TUI consent dialog (via an event emitter) or headless mode. We're neither — we're an interactive terminal during setup but a background daemon after. So we register a custom `ConsentRequest` event listener that prompts via readline, close it before the OAuth probe runs (to avoid two readline instances fighting over stdin), and then reopen it after. The readline juggling is ugly but necessary.
+
+**Markdown formatting** — Gemini's responses come as markdown, but Telegram needs HTML. We convert with `markdown-it`, which works great for complete messages. During streaming though, partial markdown (like `**bold` without the closing `**`) produces ugly output with literal asterisks. So we stream as plain text and only apply formatting on the final message — one clean edit at the end.
+
+A lot of these things can be improved, which I would do as I get time, but thing still works (and also good enough for my mom)
 
 ## Acknowledgments
 
