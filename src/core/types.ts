@@ -33,6 +33,8 @@ export interface MediaPart {
 export interface ChannelReply {
   send(text: string): Promise<number>;
   edit(messageId: number, text: string): Promise<void>;
+  sendPlain(text: string): Promise<number>;
+  editPlain(messageId: number, text: string): Promise<void>;
   sendDocument(path: string, caption?: string): Promise<void>;
 }
 

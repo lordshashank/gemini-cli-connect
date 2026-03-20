@@ -143,10 +143,10 @@ export async function processMessage(
             if (!currentMessageId) {
               const displayText = formatter.truncateForEdit(responseText);
               if (displayText.trim()) {
-                currentMessageId = await reply.send(displayText);
+                currentMessageId = await reply.sendPlain(displayText);
               }
             } else {
-              await reply.edit(
+              await reply.editPlain(
                 currentMessageId,
                 formatter.truncateForEdit(responseText),
               );
@@ -187,10 +187,10 @@ export async function processMessage(
 
     if (toolCallRequests.length > 0) {
       logger.debug(`Executing ${toolCallRequests.length} tool(s): ${toolCallRequests.map((t) => t.name).join(', ')}`);
-      // Send final accumulated text before tool execution
+      // Send final accumulated text before tool execution (still streaming, use plain)
       if (responseText.trim() && currentMessageId) {
         try {
-          await reply.edit(
+          await reply.editPlain(
             currentMessageId,
             formatter.truncateForEdit(responseText),
           );

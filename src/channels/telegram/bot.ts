@@ -81,6 +81,13 @@ function buildChannelReply(ctx: Context, chatId: number): ChannelReply {
         await ctx.api.editMessageText(chatId, messageId, newText);
       }
     },
+    sendPlain: async (replyText: string): Promise<number> => {
+      const msg = await ctx.reply(replyText);
+      return msg.message_id;
+    },
+    editPlain: async (messageId: number, newText: string): Promise<void> => {
+      await ctx.api.editMessageText(chatId, messageId, newText);
+    },
     sendDocument: async (
       filePath: string,
       docCaption?: string,
